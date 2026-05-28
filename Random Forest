@@ -1,0 +1,110 @@
+# -------------------------------
+# RandomForest CIC-IDS 2018 Model
+# -------------------------------
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc, f1_score
+
+# 1️⃣ Load multiple CSV files (covering all major attacks)
+files = ["02-14-2018.csv", "02-15-2018.csv", "02-16-2018.csv", "02-23-2018.csv"]
+dfs = [pd.read_csv(f) for f in files]
+df = pd.concat(dfs, ignore_index=True)
+df.columns = df.columns.str.strip()  # remove extra spaces from column names
+
+# 2️⃣ Select features (5 key features for simplicity)
+selected_cols = [
+    "Pkt Size Avg",
+    "Protocol",
+    "Flow Duration",
+    "Flow Byts/s",
+    "Flow Pkts/s"
+]
+
+label_col = "Label"
+
+# 3️⃣ Clean & preprocess
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+for col in selected_cols:
+    df[col] = df[col].fillna(df[col].mean())
+
+# Convert Label to binary: Benign=0, Attack=1
+df[label_col] = df[label_col].apply(lambda x: 0 if str(x).lower() == 'benign' else 1)
+
+X = df[selected_cols]
+y = df[label_col]
+
+# 4️⃣ Train-Test Split (stratified to maintain attack/benign ratio)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# 5️⃣ Train RandomForest Classifier
+model = RandomForestClassifier(
+    n_estimators=200,
+    class_weight='balanced',  # handle class imbalance
+    n_jobs=-1,
+    random_state=42
+)
+
+model.fit(X_train, y_train)
+
+# 6️⃣ Predictions on test set
+y_pred = model.predict(X_test)
+y_proba = model.predict_proba(X_test)[:,1]
+
+# 7️⃣ Confusion Matrix + ROC Curve
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15,6))
+
+# Confusion Matrix
+cm = confusion_matrix(y_test, y_pred)
+ConfusionMatrixDisplay(cm, display_labels=['Benign', 'Attack']).plot(ax=ax1, cmap='Blues')
+ax1.set_title("Confusion Matrix")
+
+# ROC Curve
+fpr, tpr, _ = roc_curve(y_test, y_proba)
+roc_auc = auc(fpr, tpr)
+ax2.plot(fpr, tpr, label=f'ROC (AUC = {roc_auc:.4f})')
+ax2.plot([0, 1], [0, 1], linestyle='--')
+ax2.set_xlabel("False Positive Rate")
+ax2.set_ylabel("True Positive Rate")
+ax2.set_title("ROC Curve")
+ax2.legend(loc="lower right")
+
+plt.tight_layout()
+plt.show()
+
+# 8️⃣ Metrics
+print("\n--- Model Results ---")
+print(f"Accuracy: {accuracy_score(y_test, y_pred):.6f}")
+print(f"F1 Score: {f1_score(y_test, y_pred):.6f}")
+print(f"AUC Score: {roc_auc:.6f}")
+
+# 9️⃣ User Input for new flow
+print("\n--- Enter New Network Flow Details ---")
+user_packet_size = float(input("Enter Packet Size Avg: "))
+user_protocol = float(input("Enter Protocol (e.g., 6 for TCP, 17 for UDP): "))
+user_duration = float(input("Enter Flow Duration: "))
+user_transfer_rate = float(input("Enter Flow Bytes/s: "))
+user_frequency = float(input("Enter Flow Packets/s: "))
+
+user_data = pd.DataFrame([[
+    user_packet_size,
+    user_protocol,
+    user_duration,
+    user_transfer_rate,
+    user_frequency
+]], columns=selected_cols)
+
+# 10️⃣ Predict user input
+user_pred = model.predict(user_data)[0]
+user_prob = model.predict_proba(user_data)[0][1]
+
+print("\n--- Prediction Result ---")
+if user_pred == 0:
+    print("Prediction: BENIGN Traffic")
+else:
+    print("Prediction: ATTACK Traffic")
+print(f"Attack Probability: {user_prob:.6f}")
