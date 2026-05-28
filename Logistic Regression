@@ -1,0 +1,98 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import roc_curve, auc, f1_score
+from google.colab import drive
+drive.mount('/content/drive')
+df = pd.read_csv("/content/drive/MyDrive/02-14-2018.csv")   # reload fresh
+df.columns = df.columns.str.strip() # remove hidden spaces
+
+print("Columns in df:", df.columns.tolist())
+features = [
+    "Dst Port",
+    "Protocol",
+    "Flow Duration",
+    "Tot Fwd Pkts",
+    "Tot Bwd Pkts",
+    "Fwd Pkt Len Mean",
+    "Bwd Pkt Len Mean",
+    "Flow Byts/s",
+    "Flow Pkts/s",
+    "Pkt Len Mean",
+    "Fwd Header Len",
+    "SYN Flag Cnt"
+]
+
+label_col = "Label"
+# Strip any hidden spaces (just in case)
+df.columns = df.columns.str.strip()
+
+# Replace inf with NaN
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+# Fill NaN for numeric features with mean
+num_features = [f for f in features if f != "Protocol"]
+df[num_features] = df[num_features].fillna(df[num_features].mean())
+
+# Fill Protocol (categorical) with mode
+df["Protocol"] = df["Protocol"].fillna(df["Protocol"].mode()[0])
+
+# Keep only needed columns
+df = df[features + [label_col]]
+
+print("Class balance:\n", df[label_col].value_counts())
+# Binary encode labels
+df["Label"] = df["Label"].astype(str).str.strip().str.upper()
+y = (df["Label"] != "BENIGN").astype(int)
+
+print("Unique labels in y:", set(y.unique()))  # must be {0,1}
+
+
+X = df[features]
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+model = LogisticRegression(max_iter=1000)
+model.fit(X_train, y_train)
+
+from sklearn.utils.multiclass import type_of_target
+
+print("type(y_test):", type_of_target(y_test))
+print("unique y_test:", set(y_test))
+
+print("type(y_pred):", type_of_target(y_pred))
+print("unique y_pred:", set(y_pred))
+acc = accuracy_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+
+print("Accuracy:", acc)
+print("F1 Score:", f1)
+ConfusionMatrixDisplay(confusion_matrix(y_test, y_pred), display_labels=["Benign", "Attack"]).plot(values_format="d")
+plt.title("Confusion Matrix - Logistic Regression")
+plt.show()
+fpr, tpr, _ = roc_curve(y_test, y_prob)
+roc_auc = auc(fpr, tpr)
+plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.3f}")
+plt.plot([0,1],[0,1],'--')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - Logistic Regression")
+plt.legend()
+plt.show()
+coefs = model.coef_[0]   # weights from Logistic Regression
+
+importance = pd.Series(coefs, index=features).sort_values(key=lambda x: np.abs(x))
+
+importance.plot(kind="barh", title="Feature Weightage (Logistic Regression Coefficients)")
+plt.xlabel("Coefficient Value")
+plt.ylabel("Feature")
+plt.tight_layout()
+plt.show()
